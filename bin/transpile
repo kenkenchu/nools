@@ -1,0 +1,87 @@
+﻿#!/usr/bin/env node
+
+var	noolsLHS		= require("../transpile/noolsLHS.js"),	
+	transpile		= noolsLHS.transpile,
+	fromJavascript	= noolsLHS.fromJavascript,
+	transPileArray	= require("../transpile/nools.js"),
+	program			= require('commander'),
+	stdout			= process.stdout,
+    fs				= require("fs"),
+    path			= require("path");
+	   
+program
+  .version('0.0.1')
+  .usage('[options] <file ...>')
+  .option('-n, --nools <path>',  'require(nools) to obtain nools module')
+  .option('-d, --define <path>', 'require(define), argument to nools.compile(src, {define: {...}, scope: {...}}')
+  .option('-s, --scope <path>',  'require(scope),  argument to nools.compile(src, {define: {...}, scope: {...}}')
+  .option('-r, --require <path>','requires (beyond define | scope) to be included as part of output bundle')
+  .option('-f, --fallback',      'causes the old transpile that resolves to javascript array notation as in nools documentation')
+  .option('-j, --javascript',    'does not use the dsl, so the rules are in javascript not dsl text')
+  .parse(process.argv)
+
+var isRelativePath = /(\.\/)|(\.\.\/)/;
+var noolsPath	= program.nools  ?  (isRelativePath.test(program.nools)  ?  path.resolve(process.cwd(), program.nools)  : program.nools)  : undefined;
+var definesPath	= program.define ?  (isRelativePath.test(program.define) ?  path.resolve(process.cwd(), program.define) : program.define) : undefined;
+var scopePath	= program.scope  ?  (isRelativePath.test(program.scope)  ?  path.resolve(process.cwd(), program.scope)  : program.scope)  : undefined;
+//
+var options = { 
+			nools:		noolsPath		
+			,defines:	undefined		//require(definesPath)
+			,scope:		undefined		//require(scopePath)
+			// defines and scope are needed to compile, then they are present in the module when it's processed at runtime in the form of require(defines -- scope )
+			// remember that this is 'foreign' to the generated output; e.g. it's referenced and has to be there as a require AFTER the compile step
+			,require: {
+					defined:definesPath
+					,scope: scopePath
+			}		
+	};
+//
+definesPath ? options.defines = require(definesPath) : undefined;
+scopePath   ? options.scope   = require(scopePath)   : undefined;
+
+//
+if(program.javascript) {
+	//
+	program.args.map(function(file) {
+		var filePath	= path.resolve(process.cwd(), file)
+			,a = filePath.split(':')
+			,module = require(a[0]);
+			callback = ( 2 === a.length ) ? module[a[1]] : module
+			fromJavascript;
+
+		var module		= require(filePath);
+		var callback	= module.callback;
+		
+		//
+		fromJavascript(function(flow) {
+			_.forEach(defines, function(val, key) {
+				flow.addDefined(key,val);
+			});
+			callback(flow);
+		}, options).then(function(wstrm) {
+			wstrm.pipe(process.stdout);
+		}
+		,function(error) {
+			console.error(error.stack);
+		});
+	});
+}
+else {
+	if( program.fallback ) {
+		transpile	= transPileArray;
+	}
+	//
+	program.args.map(function(file) {
+		var filePath	= path.resolve(process.cwd(), file);
+		var strm		= fs.createReadStream(filePath, {encoding: 'utf8'});
+
+		//
+		transpile(strm, options).then(function(wstrm) {
+			wstrm.pipe(process.stdout);
+		}
+		,function(error) {
+			console.error(error.stack);
+		});
+	});
+}
